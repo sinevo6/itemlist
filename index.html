@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CSVデータフィルタービューア</title>
+    <title>CSVデータフィルタービューア (修正版)</title>
     <style>
         * {
             box-sizing: border-box;
@@ -106,7 +106,7 @@
             box-shadow: inset 0 -1px 0 #e2e8f0;
         }
         .filter-row th {
-            top: 37px; /* 1行目のヘッダーの下に固定 */
+            top: 37px;
             background-color: #f1f5f9;
             padding: 5px 8px;
         }
@@ -122,7 +122,7 @@
         }
         .loading {
             text-align: center;
-            padding: 4px;
+            padding: 20px;
             color: #64748b;
             font-weight: bold;
         }
@@ -143,7 +143,7 @@
     <h1>CSVデータ表示・個別フィルターツール</h1>
     
     <div class="url-box">
-        <input type="text" id="urlInput" value="https://docs.google.com/spreadsheets/d/e/2PACX-1vSqN_Kv6KW5toM2YFGaht_03ADnRA6it4yxLDB7w9jOYx2xzkLruQGCxLXgf3rJUd2_5nuGI7tzvroN/pubhtml" placeholder="Googleスプレッドシートのウェブ公開URL (pubhtml または csv)">
+        <input type="text" id="urlInput" value="https://docs.google.com/spreadsheets/d/e/2PACX-1vSqN_Kv6KW5toM2YFGaht_03ADnRA6it4yxLDB7w9jOYx2xzkLruQGCxLXgf3rJUd2_5nuGI7tzvroN/pubhtml" placeholder="Googleスプレッドシートのウェブ公開URL">
         <button onclick="fetchAndParseData()">データを読み込む</button>
     </div>
 
@@ -168,7 +168,6 @@
 </div>
 
 <script>
-    // 抽出したい正確な21列の定義（順番通り、重複は出現順に対応）
     const targetColumns = [
         { name: "アイテム名", key: "アイテム名_1" },
         { name: "種類", key: "種類" },
@@ -193,10 +192,9 @@
         { name: "飛行船パワー", key: "飛行船パワー" }
     ];
 
-    let allRowsData = []; // 全行のオブジェクト配列
-    let currentFilters = {}; // 各列のフィルター文字列保持
+    let allRowsData = [];
+    let currentFilters = {};
 
-    // 初期化：ヘッダー部分を先に作っておく
     function initTableHeader() {
         const headerRow = document.getElementById('headerRow');
         const filterRow = document.getElementById('filterRow');
@@ -204,12 +202,10 @@
         filterRow.innerHTML = '';
 
         targetColumns.forEach(col => {
-            // ヘッダーセル
             const th = document.createElement('th');
             th.textContent = col.name;
             headerRow.appendChild(th);
 
-            // フィルター入力セル
             const filterTh = document.createElement('th');
             const input = document.createElement('input');
             input.type = 'text';
@@ -223,24 +219,17 @@
             filterTh.appendChild(input);
             filterRow.appendChild(filterTh);
             
-            // フィルター状態の初期化
             currentFilters[col.key] = '';
         });
     }
 
-    // フィルターのクリア
     function resetAllFilters() {
         const inputs = document.querySelectorAll('.filter-input');
-        inputs.forEach(input => {
-            input.value = '';
-        });
-        for (let key in currentFilters) {
-            currentFilters[key] = '';
-        }
+        inputs.forEach(input => input.value = '');
+        for (let key in currentFilters) currentFilters[key] = '';
         applyFilters();
     }
 
-    // データの取得と解析
     async function fetchAndParseData() {
         const urlInput = document.getElementById('urlInput').value.trim();
         const errorContainer = document.getElementById('errorContainer');
@@ -254,40 +243,30 @@
             return;
         }
 
-        // pubhtml形式の場合、CSV形式へ自動変換を試みる（CORS回避用のプロキシ等がない場合、直接fetchは制限されることがあるため、対応）
+        // URLを直接CSVダウンロード形式に安全に置換
         let targetUrl = urlInput;
         if (urlInput.includes('/pubhtml')) {
-            // pubhtml を /pub?output=csv に変換すると、プレーンなCSVとして扱いやすくなります
-            targetUrl = urlInput.replace('/pubhtml', '/pub?output=csv');
+            targetUrl = urlInput.split('/pubhtml')[0] + '/pub?output=csv';
+        } else if (urlInput.includes('/edit')) {
+            targetUrl = urlInput.split('/edit')[0] + '/export?format=csv';
         }
 
         try {
-            // Google SheetsのCORS制約を回避するため、alloriginsプロキシを使用
-            const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
-            const response = await fetch(proxyUrl);
+            // 最も安定している公式のデータ取得（プロキシを排除しダイレクトにfetch）
+            const response = await fetch(targetUrl);
+            if (!response.ok) throw new Error("ネットワーク応答が正常ではありません。");
             
-            if (!response.ok) throw new Error("データの取得に失敗しました。");
-            
-            const json = await response.json();
-            const rawData = json.contents;
-
-            // HTMLかCSVかを判定してパース
-            if (rawData.includes('<table') || rawData.includes('<TABLE')) {
-                parseHtmlTable(rawData);
-            } else {
-                parseCsvData(rawData);
-            }
+            const csvText = await response.text();
+            parseCsvData(csvText);
 
         } catch (error) {
             console.error(error);
-            showError("データの取得に失敗しました。Googleドライブの「ウェブに公開」が正しく設定されているかご確認ください。また、CORSエラーが起きる場合は、URLの末尾を「/pub?output=csv」にしたものもお試しください。");
-            tableBody.innerHTML = '<tr><td colspan="21" class="loading" style="color:red;">エラーが発生しました。</td></tr>';
+            showError("直接データが取得できませんでした。ブラウザのセキュリティ制限(CORS)の可能性があります。解決しない場合は、スプレッドシートの「ファイル」＞「共有」＞「ウェブに公開」で『カンマ区切り値(.csv)』を選択して公開し、そのURLを貼り付けてみてください。");
+            tableBody.innerHTML = '<tr><td colspan="21" class="loading" style="color:red;">データの読み込みに失敗しました。</td></tr>';
         }
     }
 
-    // CSV文字列の解析
     function parseCsvData(csvText) {
-        // 簡易CSVパース（クォーテーション対応）
         const lines = [];
         let row = [""];
         let inQuotes = false;
@@ -300,10 +279,8 @@
                 else { inQuotes = !inQuotes; }
             } else if (c === ',' && !inQuotes) {
                 row.push('');
-            } else if ((c === '' || c === '
-') && !inQuotes) {
-                if (c === '' && next === '
-') { i++; }
+            } else if ((c === '\r' || c === '\n') && !inQuotes) {
+                if (c === '\r' && next === '\n') { i++; }
                 lines.push(row);
                 row = [''];
             } else {
@@ -319,45 +296,10 @@
         processRows(rawHeaders, dataRows);
     }
 
-    // HTML（pubhtml）の解析
-    function parseHtmlTable(htmlText) {
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(htmlText, 'text/html');
-        const rows = doc.querySelectorAll('table tr');
-        
-        if (rows.length === 0) {
-            showError("HTML内にテーブルデータが見つかりませんでした。");
-            return;
-        }
-
-        let rawHeaders = [];
-        let dataRows = [];
-
-        rows.forEach((tr, index) => {
-            const cells = tr.querySelectorAll('th, td');
-            const rowData = Array.from(cells).map(cell => cell.textContent.trim());
-            
-            if (index === 0 || rawHeaders.length === 0) {
-                // 最初の空でない、または項目が入っている行をヘッダーとする
-                if (rowData.some(x => x !== "")) {
-                    rawHeaders = rowData;
-                }
-            } else {
-                dataRows.push(rowData);
-            }
-        });
-
-        processRows(rawHeaders, dataRows);
-    }
-
-    // ヘッダーのマッピングとデータ行のオブジェクト化
     function processRows(rawHeaders, dataRows) {
-        // 元のCSVのどの列番号(index)が、どのターゲット列に対応するかを突き止める
-        // 重複する「その他の材料」「品質」「必要個数」を正しく1回目・2回目に割り振るためのカウンター
         const counts = {};
-        const mapping = {}; // targetColumnsのkey -> rawHeadersでのインデックス
+        const mapping = {};
 
-        // マッピング用の下準備
         targetColumns.forEach(tc => {
             mapping[tc.key] = -1;
         });
@@ -365,11 +307,10 @@
         rawHeaders.forEach((headerName, index) => {
             if (!headerName) return;
             
-            // 出現回数をカウント
             counts[headerName] = (counts[headerName] || 0) + 1;
             let currentCount = counts[headerName];
 
-            // 完全に一致する項目名のみを対象にする（アイテム名（英語）などはここで弾かれる）
+            // 1文字ずつの完全一致を厳密にチェック
             if (headerName === "アイテム名" && currentCount === 1) mapping["アイテム名_1"] = index;
             if (headerName === "種類") mapping["種類"] = index;
             if (headerName === "ティア") mapping["ティア"] = index;
@@ -386,30 +327,32 @@
             if (headerName === "ｴッｾﾝｽ") mapping["ｴッｾﾝｽ"] = index;
             
             if (headerName === "その他の材料") {
-                if (currentCount === 1) mapping["その他の材料_1"] = index;
+                if (currentCount === 1) mapping["formatted_その他の材料_1"] = index; // 一時退避
                 if (currentCount === 2) mapping["その他の材料_2"] = index;
             }
             if (headerName === "品質") {
-                if (currentCount === 1) mapping["品質_1"] = index;
+                if (currentCount === 1) mapping["formatted_品質_1"] = index;
                 if (currentCount === 2) mapping["品質_2"] = index;
             }
             if (headerName === "必要個数") {
-                if (currentCount === 1) mapping["必要個数_1"] = index;
+                if (currentCount === 1) mapping["formatted_必要個数_1"] = index;
                 if (currentCount === 2) mapping["必要個数_2"] = index;
             }
             if (headerName === "飛行船パワー") mapping["飛行船パワー"] = index;
         });
 
-        // 構造化した行データの作成
+        // 退避データの正式マッピング
+        if(mapping["formatted_その他の材料_1"]) mapping["その他の材料_1"] = mapping["formatted_その他の材料_1"];
+        if(mapping["formatted_品質_1"]) mapping["品質_1"] = mapping["formatted_品質_1"];
+        if(mapping["formatted_必要個数_1"]) mapping["必要個数_1"] = mapping["formatted_必要個数_1"];
+
         allRowsData = [];
         dataRows.forEach(row => {
-            // 空行はスキップ
             if (row.length === 0 || row.every(cell => cell === "")) return;
 
             let rowObj = {};
             targetColumns.forEach(col => {
                 let csvIdx = mapping[col.key];
-                // 元データに対応する列があればその値、なければ空文字
                 rowObj[col.key] = (csvIdx !== -1 && csvIdx < row.length) ? row[csvIdx] : "";
             });
             allRowsData.push(rowObj);
@@ -418,18 +361,15 @@
         applyFilters();
     }
 
-    // フィルターの適用とテーブル描画
     function applyFilters() {
         const tableBody = document.getElementById('tableBody');
         tableBody.innerHTML = '';
 
-        // フィルター条件に合う行を抽出
         const filteredRows = allRowsData.filter(row => {
             for (let col of targetColumns) {
                 let filterVal = currentFilters[col.key];
                 if (filterVal) {
                     let cellVal = (row[col.key] || '').toLowerCase();
-                    // 部分一致で判定
                     if (!cellVal.includes(filterVal)) {
                         return false;
                     }
@@ -438,7 +378,6 @@
             return true;
         });
 
-        // 件数表示の更新
         document.getElementById('recordCount').textContent = `表示件数: ${filteredRows.length} / ${allRowsData.length} 件`;
 
         if (filteredRows.length === 0) {
@@ -446,23 +385,26 @@
             return;
         }
 
-        // テーブル行の生成
+        let htmlBuffer = '';
         filteredRows.forEach(row => {
-            const tr = document.createElement('tr');
+            htmlBuffer += '<tr>';
             targetColumns.forEach(col => {
-                const td = document.createElement('td');
-                td.textContent = row[col.key];
-                tr.appendChild(td);
+                htmlBuffer += `<td>${escapeHtml(row[col.key])}</td>`;
             });
-            tableBody.innerHTML += tr.outerHTML; // 高速化のため outerHTML を結合
+            htmlBuffer += '</tr>';
         });
+        tableBody.innerHTML = htmlBuffer;
+    }
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
     }
 
     function showError(msg) {
         document.getElementById('errorContainer').innerHTML = `<div class="error-msg">${msg}</div>`;
     }
 
-    // 初回読み込み時のヘッダー生成
     window.onload = function() {
         initTableHeader();
     };
